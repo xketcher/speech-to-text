@@ -1,20 +1,35 @@
-from fastapi import FastAPI, UploadFile, File from fastapi.responses import JSONResponse from speech_recognition import Recognizer, AudioFile import uuid import os
+import subprocess
+import uuid
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import JSONResponse
+from faster_whisper import WhisperModel
+import os
 
-app = FastAPI() UPLOAD_DIR = "temp" os.makedirs(UPLOAD_DIR, exist_ok=True)
+app = FastAPI()
+model = WhisperModel("small")
 
-@app.post("/myanmar-voice-to-text/") async def transcribe_audio(file: UploadFile = File(...)): file_id = str(uuid.uuid4()) file_path = os.path.join(UPLOAD_DIR, f"{file_id}.wav")
+@app.post("/myanmar-voice-to-text/")
+async def transcribe_audio(file: UploadFile = File(...)):
+    original_path = f"temp/{uuid.uuid4()}.3gp"
+    wav_path = original_path.replace(".3gp", ".wav")
 
-with open(file_path, "wb") as out_file:
-    out_file.write(await file.read())
+    with open(original_path, "wb") as f:
+        f.write(await file.read())
 
-try:
-    recognizer = Recognizer()
-    with AudioFile(file_path) as source:
-        audio = recognizer.record(source)
-        text = recognizer.recognize_google(audio, language="my-MM")
+    # Convert to WAV using ffmpeg
+    convert_cmd = ["ffmpeg", "-i", original_path, "-ar", "16000", "-ac", "1", wav_path]
+    try:
+        subprocess.run(convert_cmd, check=True)
+    except subprocess.CalledProcessError:
+        return JSONResponse(content={"error": "Failed to convert audio to WAV"}, status_code=400)
+
+    try:
+        segments, _ = model.transcribe(wav_path)
+        text = ''.join([seg.text for seg in segments])
         return {"text": text}
-except Exception as e:
-    return JSONResponse(content={"error": str(e)}, status_code=400)
-finally:
-    os.remove(file_path)
-
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+    finally:
+        os.remove(original_path)
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
