@@ -1,42 +1,37 @@
-# server.py
-
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
-import speech_recognition as sr
 from pydub import AudioSegment
-import os
-import uuid
+import speech_recognition as sr
+import os, uuid
 
 app = FastAPI()
 
 @app.post("/myanmar-voice-to-text/")
 async def myanmar_voice_to_text(file: UploadFile = File(...)):
     try:
-        # Save the uploaded file temporarily (assumed to be .3gp)
-        original_ext = file.filename.split('.')[-1]
-        raw_filename = f"temp_{uuid.uuid4().hex}"
-        input_path = f"{raw_filename}.{original_ext}"
-        wav_path = f"{raw_filename}.wav"
+        # Save uploaded file
+        ext = file.filename.split('.')[-1]
+        temp_input = f"temp_{uuid.uuid4().hex}.{ext}"
+        temp_wav = f"temp_{uuid.uuid4().hex}.wav"
 
-        with open(input_path, "wb") as f:
+        with open(temp_input, "wb") as f:
             f.write(await file.read())
 
-        # Convert 3gp to WAV (16-bit PCM)
-        audio = AudioSegment.from_file(input_path)
-        audio.export(wav_path, format="wav", parameters=["-acodec", "pcm_s16le", "-ac", "1", "-ar", "16000"])
+        # Convert to WAV
+        sound = AudioSegment.from_file(temp_input)
+        sound.export(temp_wav, format="wav")
 
-        # Recognize the WAV audio
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data, language="my-MM")
+        # Recognize
+        r = sr.Recognizer()
+        with sr.AudioFile(temp_wav) as source:
+            audio_data = r.record(source)
+            text = r.recognize_google(audio_data, language="my-MM")
 
-        # Clean up temporary files
-        os.remove(input_path)
-        os.remove(wav_path)
+        os.remove(temp_input)
+        os.remove(temp_wav)
 
         return {"text": text}
-
+    
     except sr.UnknownValueError:
         return JSONResponse(content={"error": "Could not understand audio"}, status_code=400)
     except Exception as e:
